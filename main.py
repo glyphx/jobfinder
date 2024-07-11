@@ -1,9 +1,16 @@
 import os
-from database import initialize_db, load_existing_jobs, store_job_info, search_jobs_in_db
 from search import generate_job_search_query, search_platform, parse_job_listings_with_openai, find_job_description_link, load_resume, generate_embedding
 from output import output_job_listings, filter_existing_jobs
+import pinecone
 
-def process_jobs(job_listings, existing_jobs, cursor):
+pinecone.init(api_key="YOUR_PINECONE_API_KEY", environment="us-west1-gcp")  # Use your Pinecone environment
+
+index_name = 'job-search'
+if index_name not in pinecone.list_indexes():
+    pinecone.create_index(index_name, dimension=1536)  # dimension should match OpenAI's embedding dimension
+index = pinecone.Index(index_name)
+
+def process_jobs(job_listings, existing_jobs):
     new_jobs = []
 
     for job in job_listings:
@@ -32,7 +39,6 @@ def process_jobs(job_listings, existing_jobs, cursor):
             'justification': job.get('justification', 'Not specified')
         }
         
-        store_job_info(cursor, job_info)
         new_jobs.append(job_info)
 
         # Generate and store vector in Pinecone
@@ -61,20 +67,16 @@ if __name__ == '__main__':
     resume_file = "Shawn_Ott_Resume.txt"
     resume_content = load_resume(resume_file)
     
-    conn, cursor = initialize_db()
-    existing_jobs = load_existing_jobs(cursor)
+    existing_jobs = []
 
     platforms = ["Indeed", "ZipRecruiter", "SimplyHired", "AngelList", "FlexJobs"]
     new_job_listings = find_new_job_listings("security engineer", platforms, resume_content)
 
     filtered_new_jobs = filter_existing_jobs(new_job_listings, existing_jobs)
 
-    new_jobs = process_jobs(filtered_new_jobs, existing_jobs, cursor)
+    new_jobs = process_jobs(filtered_new_jobs, existing_jobs)
 
     output_job_listings(new_jobs, 'new_job_listings.yaml')
-
-    conn.commit()
-    conn.close()
 
     # Query Pinecone with resume
     pinecone_results = query_pinecone_with_resume(resume_content)
